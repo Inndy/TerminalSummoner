@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
@@ -71,6 +72,7 @@ namespace HotkeyX
 
         public void Dispatch(uint id)
         {
+            Debug.WriteLine(string.Format("Hotkey #{0} triggered", id), "HotkeyX/HotkeyHandler");
             this.HotkeysCollection[id].Action();
         }
 

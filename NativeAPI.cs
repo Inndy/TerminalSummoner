@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -26,6 +27,27 @@ namespace HotkeyX
         public const uint OBJID_WINDOW = 0;
         public const uint CHILDID_SELF = 0;
 
+        public const int TOKEN_QUERY = 0X00000008;
+
+        public const int ERROR_NO_MORE_ITEMS = 259;
+
+        public enum TOKEN_INFORMATION_CLASS
+        {
+            TokenUser = 1,
+            TokenGroups,
+            TokenPrivileges,
+            TokenOwner,
+            TokenPrimaryGroup,
+            TokenDefaultDacl,
+            TokenSource,
+            TokenType,
+            TokenImpersonationLevel,
+            TokenStatistics,
+            TokenRestrictedSids,
+            TokenSessionId
+        }
+
+
         ////////////////////////////////////////////////////////////////////////////////
 
         public delegate void WinEventDelegate(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
@@ -47,6 +69,9 @@ namespace HotkeyX
         public static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string lpszClass, string lpszWindow);
 
         [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        public static extern int GetWindowTextLength(IntPtr hWnd);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
 
         [DllImport("user32.dll", SetLastError = true)]
@@ -66,5 +91,56 @@ namespace HotkeyX
         [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool UnregisterHotKey(IntPtr hWnd, uint id);
+
+        [DllImport("advapi32")]
+        public static extern bool OpenProcessToken(IntPtr ProcessHandle, int DesiredAccess, out IntPtr TokenHandle);
+
+        [DllImport("kernel32")]
+        public static extern IntPtr GetCurrentProcess();
+
+        [DllImport("advapi32", CharSet = CharSet.Auto)]
+        public static extern bool GetTokenInformation(IntPtr hToken, TOKEN_INFORMATION_CLASS tokenInfoClass, IntPtr TokenInformation, int tokeInfoLength, ref int reqLength);
+
+        [DllImport("kernel32")]
+        public static extern bool CloseHandle(IntPtr handle);
+
+        [DllImport("advapi32", CharSet = CharSet.Auto)]
+        public static extern bool ConvertSidToStringSid(IntPtr pSID, [In, Out, MarshalAs(UnmanagedType.LPTStr)] ref string pStringSid);
+    }
+
+    class API {
+        public static string GetWindowText(IntPtr hWnd)
+        {
+            StringBuilder sb = new StringBuilder(NativeAPI.GetWindowTextLength(hWnd));
+            if (NativeAPI.GetWindowText(hWnd, sb, sb.Capacity) <= 0)
+                return null;
+
+            return sb.ToString();
+        }
+
+        public static bool GetWindowProcessId(IntPtr hWnd, out int pid)
+        {
+            if(NativeAPI.GetWindowThreadProcessId(hWnd, out pid) > 0)
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        public static string GetCurrentUserSid()
+        {
+            if(!NativeAPI.OpenProcessToken(NativeAPI.GetCurrentProcess(), NativeAPI.TOKEN_QUERY, out IntPtr TokenHandle))
+            {
+                return null;
+            }
+
+            var winId = new System.Security.Principal.WindowsIdentity(TokenHandle);
+            string sid = winId.User.ToString();
+
+            NativeAPI.CloseHandle(TokenHandle);
+
+            return sid;
+        }
     }
 }

@@ -9,6 +9,12 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
 using Microsoft.Win32;
+using Windows.ApplicationModel;
+using Windows.Foundation;
+using Windows.Management.Deployment;
+using System.Security.Principal;
+using System.DirectoryServices.AccountManagement;
+using System.Security.Cryptography;
 
 namespace HotkeyX
 {
@@ -19,61 +25,75 @@ namespace HotkeyX
         private int LastPid;
         private IntPtr LastHwnd;
         private NativeAPI.WinEventDelegate WinEventHandler;
-
-        public static string GetWindowText(IntPtr hWnd)
-        {
-            StringBuilder sb = new StringBuilder(1024);
-            if (NativeAPI.GetWindowText(hWnd, sb, sb.Capacity) <= 0)
-                return null;
-            return sb.ToString();
-        }
+        private Dictionary<int, Process> ProcessCache;
+        private string WindowClassName;
 
         public Form1()
         {
             InitializeComponent();
             this.hotkeyManager = new HotkeyManager(this.Handle);
-            foreach (var KeyName in Registry.ClassesRoot.OpenSubKey(@"Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\Repository\Families").GetSubKeyNames())
+            this.ProcessCache = new Dictionary<int, Process>();
+            this.WindowClassName = null;
+            this.LastHwnd = IntPtr.Zero;
+
+            foreach(var package in new PackageManager().FindPackagesForUser(API.GetCurrentUserSid()))
             {
-                if (KeyName.StartsWith("Microsoft.WindowsTerminal_"))
+                if(package.Id.Name == "Microsoft.WindowsTerminal")
                 {
-                    this.txtStartProgarm.Text = string.Format("shell:AppsFolder\\{0}!App", KeyName);
+                    Debug.WriteLine(string.Format("WindowsTerminal found: {0}", package.Id.FamilyName), "HotKeyX/WindowsTerminal");
+                    this.txtStartProgarm.Text = string.Format("shell:AppsFolder\\{0}!App", package.Id.FamilyName);
                     this.txtProgramName.Text = "WindowsTerminal";
+                    this.WindowClassName = "CASCADIA_HOSTING_WINDOW_CLASS";
                     break;
                 }
             }
         }
 
-        Process StartProgram(string Program, ProcessWindowStyle WindowStyle = ProcessWindowStyle.Minimized)
+        Process GetProcessByIdWithCache(int pid)
         {
-            return Process.Start(new ProcessStartInfo(Program)
+            try
             {
-                WindowStyle = WindowStyle
-            });
+                if (!ProcessCache.TryGetValue(pid, out Process proc) || proc.HasExited)
+                {
+                    return ProcessCache[pid] = Process.GetProcessById(pid);
+                } else
+                {
+                    return proc;
+                }
+            }
+            catch (Exception)
+            {
+                return ProcessCache[pid] = null;
+            }
+        }
+
+        string GetProcessNameById(int pid)
+        {
+            Process proc = GetProcessByIdWithCache(pid);
+            if (proc == null) return null;
+            return proc.ProcessName;
         }
 
         IntPtr FindProgram()
         {
-
-            if (LastHwnd != IntPtr.Zero &&
-                NativeAPI.GetWindowThreadProcessId(LastHwnd, out int pid) != 0 &&
-                pid == LastPid
-                )
-            {
+            if (LastHwnd != IntPtr.Zero && API.GetWindowProcessId(LastHwnd, out int pid) && pid == LastPid)
                 return LastHwnd;
-            }
 
-            return FindWindowBy(Hwnd =>
-                NativeAPI.GetWindowThreadProcessId(Hwnd, out pid) != 0 &&
-                Process.GetProcessById(pid).ProcessName == txtProgramName.Text
+            LastHwnd = FindWindowBy(Hwnd =>
+                API.GetWindowProcessId(Hwnd, out pid) &&
+                GetProcessNameById(pid) == txtProgramName.Text
             );
+
+            return LastHwnd;
         }
 
         IntPtr FindWindowBy(Func<IntPtr, bool> Selector)
         {
-            for (IntPtr Current = NativeAPI.FindWindowEx(IntPtr.Zero, IntPtr.Zero, null, null);
+            for (IntPtr Current = NativeAPI.FindWindowEx(IntPtr.Zero, IntPtr.Zero, this.WindowClassName, null);
                 Current != IntPtr.Zero;
-                Current = NativeAPI.FindWindowEx(IntPtr.Zero, Current, null, null))
+                Current = NativeAPI.FindWindowEx(IntPtr.Zero, Current, this.WindowClassName, null))
             {
+                Debug.WriteLine(string.Format("Found hwnd: {0:x}", Current), "HotKeyX/FindWindowBy");
                 if (Selector(Current))
                     return Current;
             }
@@ -90,20 +110,20 @@ namespace HotkeyX
                 IntPtr Hwnd = FindProgram();
                 if (Hwnd == IntPtr.Zero)
                 {
-                    Debug.WriteLine("[Toggle] Last window not found, start new one");
-                    StartProgram(this.txtStartProgarm.Text, ProcessWindowStyle.Normal);
+                    Debug.WriteLine("Last window not found, start new one", "HotKeyX/Toggle");
+                    Process.Start(this.txtStartProgarm.Text);
                     return;
                 }
 
                 IntPtr Current = NativeAPI.GetForegroundWindow();
                 if (Current == Hwnd)
                 {
-                    Debug.WriteLine("[Toggle] Last window is current foreground window, minimize it");
+                    Debug.WriteLine("Last window is current foreground window, minimize it", "HotKeyX/Toggle");
                     NativeAPI.ShowWindow(Hwnd, NativeAPI.SW_MINIMIZE);
                 }
                 else
                 {
-                    Debug.WriteLine("[Toggle] Last window found, bring it to front");
+                    Debug.WriteLine("Last window found, bring it to front", "HotKeyX/Toggle");
                     NativeAPI.ShowWindow(Hwnd, NativeAPI.SW_SHOWNORMAL);
                     NativeAPI.SetForegroundWindow(Hwnd);
                 }
@@ -120,9 +140,13 @@ namespace HotkeyX
                 Application.Exit();
             }
 
+            Debug.WriteLine("Hotkey registered", "HotKeyX/Init");
+
             // Start a minimized terminal if there's no any
             if (FindProgram() == IntPtr.Zero)
-                StartProgram(this.txtStartProgarm.Text);
+                Process.Start(this.txtStartProgarm.Text);
+            else
+                Debug.WriteLine(string.Format("Existing terminal found: {0:x}", this.LastHwnd), "HotKeyX/Init");
         }
 
         protected override void WndProc(ref Message m)
@@ -160,14 +184,14 @@ namespace HotkeyX
             if (eventType != NativeAPI.EVENT_SYSTEM_FOREGROUND ||
                 idObject != NativeAPI.OBJID_WINDOW ||
                 idChild != NativeAPI.CHILDID_SELF ||
-                NativeAPI.GetWindowThreadProcessId(hwnd, out int pid) == 0)
+                API.GetWindowProcessId(hwnd, out int pid))
                 return;
 
-            Debug.WriteLine(string.Format("[Hook] Actived window: {0:x}, Pid: {1}", hwnd.ToInt32(), pid));
+            Debug.WriteLine(string.Format("Actived window: {0:x}, Pid: {1}", hwnd.ToInt32(), pid), "HotKeyX/Hook");
 
             try
             {
-                if (Process.GetProcessById(pid).ProcessName == txtProgramName.Text)
+                if (GetProcessNameById(pid) == txtProgramName.Text)
                 {
                     this.LastPid = pid;
                     this.LastHwnd = hwnd;

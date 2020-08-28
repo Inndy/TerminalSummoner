@@ -8,7 +8,7 @@
     <OutputType>WinExe</OutputType>
     <RootNamespace>TerminalSummoner</RootNamespace>
     <AssemblyName>TerminalSummoner</AssemblyName>
-    <TargetFrameworkVersion>v4.7</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.6.1</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <Deterministic>true</Deterministic>
     <PublishUrl>publish\</PublishUrl>
@@ -64,9 +64,8 @@
     <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
-    <Reference Include="Windows, Version=255.255.255.255, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\..\..\..\Program Files (x86)\Windows Kits\10\UnionMetadata\Windows.winmd</HintPath>
+    <Reference Include="Windows">
+      <HintPath>..\..\..\..\Program Files (x86)\Windows Kits\10\UnionMetadata\10.0.18362.0\Windows.winmd</HintPath>
     </Reference>
   </ItemGroup>
   <ItemGroup>

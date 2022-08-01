@@ -1,5 +1,9 @@
 # TerminalSummoner
 
+## Deprecation
+
+This project is deprecated since we finally had `global summon` feature in the [Windows Terminal v1.9](https://github.com/microsoft/terminal/issues/8888)
+
 This tool will register following global hotkeys to open Windows Terminal
 
 | Hotkey         | Function                                            |
